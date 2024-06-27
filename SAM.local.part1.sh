@@ -1,8 +1,12 @@
-####################### SM-12 SPECC1L library #############
+####################### Example library ####################
+## Data analysis pipeline part 1 for SAM using UMI clustering. 
+## Copyright © 2024 The Trustees of Columbia University in the City of New York. All Rights Reserved.
+
 #!/bin/bash
 #!/usr/bin/perl
 
-cd /Users/sw3203/Documents/Research/Sequencing/illumina/UMI/SM-14_R2P
+# replace {PATH to the fastq.gz files} with the actual path
+cd {PATH to the fastq.gz files}
 source /miniconda3/etc/profile.d/conda.sh
 
 ### need to install longread_umi conda environment as in README.md ####
@@ -52,11 +56,11 @@ time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; cutadapt -g
 time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; gunzip $f; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u1.id ${f%.gz} > ${f%.fastq.gz}.u1.ori.fastq; grep ^@ ${f%.fastq.gz}.u1.g.g.u2.fastq | cut -d " " -f1 > ${f%.fastq.gz}.u1.g.g.u2.ID; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u1.g.g.u2.ID ${f%.fastq.gz}.u1.fastq > ${f%.fastq.gz}.u1.u2pick.fastq; wc -l ${f%.fastq.gz}.u1.fastq; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u1.id ${f%.fastq.gz}.u1.g.g.u2.fastq > ${f%.fastq.gz}.u2.u1.fastq; wc -l ${f%.fastq.gz}.u2.u1.fastq; grep "^@" ${f%.fastq.gz}.u2.u1.fastq | cut -d " " -f1 > ${f%.fastq.gz}.u2.u1.ID; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u2.u1.ID ${f%.fastq.gz}.u1.fastq > ${f%.fastq.gz}.u1.u2.u1.fastq; wc -l ${f%.fastq.gz}.u1.u2.u1.fastq; gzip ${f%.gz}; cd ..; pwd; done
 
 
-############### skip ##############################################
-###### need to use the sed under longread_umi environment ######
+############### skip #####################################################
+############ need to use the sed under longread_umi environment ##########
 
 echo "Run this part in terminal" 
-cd /Users/sw3203/Documents/Research/Sequencing/illumina/UMI/SM-14_R2P
+cd {PATH to the fastq.gz files}
 conda activate longread_umi
 conda info
 ########## this step has syntex error in .sh file, need to work on ########

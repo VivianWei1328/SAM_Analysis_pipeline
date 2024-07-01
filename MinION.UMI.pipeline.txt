@@ -1,0 +1,366 @@
+########################### Example library ################################
+## Data analysis pipeline for SAM using Nanopore reads for UMI clustering. 
+## Copyright © 2024 The Trustees of Columbia University in the City of New York. All Rights Reserved.
+
+###### The file name is Example, and the 2M reads were included 
+
+###### Example nanopore read  
+#>Nanopore
+CAAGCAGAAGACGGCATACGAGATGTTGCAGCGTGACTGGAGTTCAGACGTGTGCTCTTCCGATCNNNYRNNNYRNNNYRNNNATTATGGGAGAACTGGAGCCttcagagggtaaaattaagcacagtggaagaatttcattctgttctcagttttcctggattatgcctggcaccattaaagaaaatatcatctttggtgtttcctatgatgaatatagatacagaagcgtcatcaaagcatgccaactagaagaggtaagaaactatgtgaaaactttttgattatgcatatgaaCCCTTCACACTACCCAAATTNNNYRNNNYRNNNYRNNNAGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT
+
+### 
+cd {PATH to fastq files}
+
+
+rm Example.500.fastq
+touch Example.500.fastq
+
+for i in {1..500}; do echo $i; gunzip fastq_runid_b3aae9a3a424d82c7f7e0abd0457ad5f0601bc71_$i\_0.fastq.gz; cat fastq_runid_b3aae9a3a424d82c7f7e0abd0457ad5f0601bc71_$i\_0.fastq >> Example.500.fastq; done
+
+
+wc -l Example.500.fastq
+
+
+time for f in Example.500.fastq; do echo $f; grep -A1 "read" $f | sed -e 's/^@/>/g' -e '/--/d' > ${f%.fastq}.fasta; done
+
+gzip Example.500.fastq
+time gzip *.fastq
+
+###### Vbarcores.top.22.fasta.gz from STORK analysis pipeline ####
+###### Use cutadapt to demultiplex 
+
+cp {PATH to barcodes}/Vbarcores.top.22.fasta.gz .
+gunzip Vbarcores.top.22.fasta.gz
+
+awk '{print substr($0,1,21)};' Vbarcores.top.22.fasta > Vbarcores.top.21.fasta
+time cutadapt -g file:Vbarcores.top.21.fasta -O 20 -e 0.2 -m 150 -o Example.500.{name}.cut2.21.m150.fasta Example.500.fasta >Example.500.cut2.21.m150.log
+
+
+time cutadapt -g file:Vbarcores.top.21.fasta -O 20 -e 0.1 -m 150 -o Example.500.{name}.cut1.21.m150.fastq.gz Example.500.fastq.gz >Example.500.cut1.21.m150.log
+
+
+
+#### update the input file with Example.500.V03.cut1.21.m150.fastq.gz
+
+Example.500.V03.cut1.21.m150.fastq.gz
+vi input.file
+
+
+############### part 1 script ############
+
+########## trim off the gene specific primers on both sides, map to Human reference 
+########## use both bowtie2 and minimap2 
+########## note that minimap2 linux version does not have header in output
+
+### Cut the 5' universal adapter, half of nanopore seq are reverse complement 
+
+cutadapt -g CAAGCAGAAGACGGCATACGAGAT -O 20 -e 0.2 --discard-untrimmed -o Example.500.V03.cut1.21.m150.forRC.fastq.gz 
+
+
+######### from https://www.biostars.org/p/238962/#376182
+#seqkit seq -r -p t.fq.gz | gzip -c  > new.fq.gz
+#conda install -c bioconda seqkit
+
+seqkit seq -r -p Example.500.V03.cut1.21.m150.fastq.gz | gzip -c > Example.500.V03.cut1.21.m150.RC.fastq.gz
+ 
+
+cutadapt -g AATGATACGGCGACCACCGAGATC -O 20 -e 0.2 --discard-untrimmed -o Example.500.V03.cut1.21.m150.mock1.fastq.gz Example.500.V03.cut1.21.m150.fastq.gz >Example.500.V03.cut1.21.m150.mock1.log
+
+cutadapt -g AATGATACGGCGACCACCGAGATC -O 20 -e 0.2 --discard-untrimmed -o Example.500.V03.cut1.21.m150.mock2.fastq.gz Example.500.V03.cut1.21.m150.RC.fastq.gz >Example.500.V03.cut1.21.m150.mock2.log
+
+rm Example.500.V03.cut1.21.m150.mock.fastq
+touch Example.500.V03.cut1.21.m150.mock.fastq
+for i in {1..2}; do echo $i; gunzip Example.500.V03.cut1.21.m150.mock$i.fastq.gz; cat Example.500.V03.cut1.21.m150.mock$i.fastq >> Example.500.V03.cut1.21.m150.mock.fastq; gzip Example.500.V03.cut1.21.m150.mock$i.fastq; done
+gzip Example.500.V03.cut1.21.m150.mock.fastq
+
+cutadapt -g ACACTCTTTCCCTACACGACGCTCTTCCGATCT -O 20 -e 0.2 --discard-untrimmed -o Example.500.V03.cut1.21.m150.mock.s.fastq.gz Example.500.V03.cut1.21.m150.mock.fastq.gz> Example.500.V03.cut1.21.m150.mock.s.log  
+
+###### extract the first 600bp for analysis #########
+seqkit subseq -r 1:600 Example.500.V03.cut1.21.m150.mock.s.fastq.gz | gzip -c > Example.500.V03.cut1.21.m150.mock.s.350.fastq.gz
+
+###### update the input.file ###########
+vi input.file
+Example.500.V03.cut1.21.m150.mock.s.350.fastq.gz
+
+time for f in $(cat input.file); 
+do echo $f; 
+	cutadapt -g AATTTGGGTAGTGTGAAGGG -O 18 -e 0.2 -o ${f%.fastq.gz}.cut.g.fastq $f >${f%.fastq.gz}.cut.g.log; cutadapt -a GGCTCCAGTTCTCCCATAAT -O 18 -e 0.2 -m 50 -o ${f%.fastq.gz}.cut.g.a.fastq ${f%.fastq.gz}.cut.g.fastq >${f%.fastq.gz}.cut.g.a.log; 
+
+	bowtie2 --threads 8 -x /Users/sw3203/Documents/Fun/Ref/hg19/Bowtie2Index/genome -U ${f%.fastq.gz}.cut.g.a.fastq -q --very-sensitive-local -k5 -S ${f%.fastq.gz}.cut.g.a.GRCh37.k5.sam;
+	
+	samtools view -bS ${f%.fastq.gz}.cut.g.a.GRCh37.k5.sam | samtools sort - ${f%.fastq.gz}.cut.g.a.GRCh37.k5.sort; 
+	
+	samtools index ${f%.fastq.gz}.cut.g.a.GRCh37.k5.sort.bam; 
+	
+	bowtie2 --threads 8 -x /Users/sw3203/Documents/Fun/Ref/hg19/Bowtie2Index/genome -U ${f%.fastq.gz}.cut.g.a.fastq -q --very-sensitive -S ${f%.fastq.gz}.cut.g.a.GRCh37.sam;
+	samtools view -bS ${f%.fastq.gz}.cut.g.a.GRCh37.sam | samtools sort - ${f%.fastq.gz}.cut.g.a.GRCh37.sort; 
+	samtools index ${f%.fastq.gz}.cut.g.a.GRCh37.sort.bam
+	
+	minimap2 -t 8 -ax map-ont -a /Users/sw3203/Documents/Fun/Ref/hg19/Bowtie2Index/genome.fa ${f%.fastq.gz}.cut.g.a.fastq -o ${f%.fastq.gz}.cut.g.a.GRCh37.mini.sam
+	
+	samtools view -bS ${f%.fastq.gz}.cut.g.a.GRCh37.mini.sam | samtools sort - ${f%.fastq.gz}.cut.g.a.GRCh37.mini.sort; 
+	samtools index ${f%.fastq.gz}.cut.g.a.GRCh37.mini.sort.bam; 
+
+	mkdir ${f%.fastq.gz};
+	mv ${f%.fastq.gz}.* ${f%.fastq.gz};
+	gzip ${f%.gz};
+done 
+
+
+##################################################################################
+######## replace primers at -a -g with the actual R(everse) primer 
+
+time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; cutadapt -a AATTTGGGTAGTGTGAAGGG -O 18 -e 0.20 -m 18 -M 18 --discard-untrimmed -o ${f%.fastq.gz}.u1.fastq ./$f >${f%.fastq.gz}.u1.log; cutadapt -g AATTTGGGTAGTGTGAAGGG -O 18 -e 0.20 --discard-untrimmed -o ${f%.fastq.gz}.u1.g.fastq $f >${f%.fastq.gz}.u1.g.log; cd ..; pwd; done
+
+
+######## replace the reverse complement of forwards (RC-F) primers (-g) 
+######## with the actual RC-F primer
+
+time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; cutadapt -g GGCTCCAGTTCTCCCATAAT -O 18 -e 0.2 --discard-untrimmed -o ${f%.fastq.gz}.u1.g.g.fastq ${f%.fastq.gz}.u1.g.fastq >${f%.fastq.gz}.u1.g.g.log; cutadapt -a GATCGGAAGAGCACACGTCT -O 18 -e 0.2 -m 18 -M 18 --discard-untrimmed -o ${f%.fastq.gz}.u1.g.g.u2.fastq ${f%.fastq.gz}.u1.g.g.fastq >${f%.fastq.gz}.u1.g.g.u2.log; grep ^@ ${f%.fastq.gz}.u1.fastq | cut -d " " -f1 > ${f%.fastq.gz}.u1.id; cd ..; pwd; done
+
+######## or -a AGATCGGAAGAGCACACGTCT for MR2-T forward primer
+
+time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; gunzip $f; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u1.id ${f%.gz} > ${f%.fastq.gz}.u1.ori.fastq; grep ^@ ${f%.fastq.gz}.u1.g.g.u2.fastq | cut -d " " -f1 > ${f%.fastq.gz}.u1.g.g.u2.ID; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u1.g.g.u2.ID ${f%.fastq.gz}.u1.fastq > ${f%.fastq.gz}.u1.u2pick.fastq; wc -l ${f%.fastq.gz}.u1.fastq; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u1.id ${f%.fastq.gz}.u1.g.g.u2.fastq > ${f%.fastq.gz}.u2.u1.fastq; wc -l ${f%.fastq.gz}.u2.u1.fastq; grep "^@" ${f%.fastq.gz}.u2.u1.fastq | cut -d " " -f1 > ${f%.fastq.gz}.u2.u1.ID; awk 'FNR==NR{a[$0];next}($1 in a){print;getline;print;getline;print;getline;print;}' ${f%.fastq.gz}.u2.u1.ID ${f%.fastq.gz}.u1.fastq > ${f%.fastq.gz}.u1.u2.u1.fastq; wc -l ${f%.fastq.gz}.u1.u2.u1.fastq; gzip ${f%.gz}; cd ..; pwd; done
+
+
+################################# skip ########################################
+###### need to use the sed under longread_umi environment ######
+echo "Run in terminal" 
+ 
+conda activate longread_umi
+conda info
+########## this step has syntex error in .sh file, need to run in terminal ########
+
+
+cd {PATH to fastq files}
+
+pwd
+
+time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; paste   <(sed -n '1~4s/^@/>/p;2~4p' ${f%.fastq.gz}.u1.u2.u1.fastq) <( sed -n '1~4s/^@/>/p;2~4p' ${f%.fastq.gz}.u2.u1.fastq ) |  cut -d " " -f1 | sed 's/\t//g' > ${f%.fastq.gz}.u12.fasta; wc -l ${f%.fastq.gz}.u12.fasta; PATTERN="[ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{6}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}[CT][AG][ATCG]{3}"; grep -B1 -E "$PATTERN" ${f%.fastq.gz}.u12.fasta | sed '/^--$/d' > ${f%.fastq.gz}.u12.f.fasta; wc -l ${f%.fastq.gz}.u12.f.fasta; cp ${f%.fastq.gz}.u12.f.fasta test.umi12.f.fasta; cd ..; pwd; done
+
+
+time for f in $(cat input.file); do echo $f; cd ${f%.fastq.gz}; pwd; gzip *.fastq; cd ..; pwd; done
+
+################## end of skip  ############################
+
+
+
+#################################################################################
+############## use the umi12f.fa from longread_umi for clustering ##############
+cd {PATH to fastq files}
+pwd
+
+Example.500.V03.cut1.21.m150.fastq.gz
+vi nano.input.file
+
+
+########### the line 134 miss assign $LONGREAD_UMI_PATH, became local path ####
+########### use long_umi for clustering nanopore UMI
+conda activate longread_umi
+
+cd /miniconda3/envs/longread_umi/longread_umi
+
+longread_umi nanopore_pipeline -d {PATH to fastq files}/Example.500.V03.cut1.21.m150.fastq -v 30 -o {PATH to fastq files}/Example.500.V03.cut1.21.m150.LRUMI_out -s 90 -e 90 -m 250 -M 600 -f CAAGCAGAAGACGGCATACGAGATGTTGCAGCGTGACTGGAGTTCAGACGTGTGCTCTTCCGATC -F ATTATGGGAGAACTGGAGCC -r AATGATACGGCGACCACCGAGATCTACACTCTTTCCCTACACGACGCTCTTCCGATCT -R AATTTGGGTAGTGTGAAGGG -c 3 -p 1 -q r941_min_high_g330 -t 8 -T 1
+
+conda deactivate
+
+cd {PATH to fastq files}
+
+{PATH to fastq files}/Example.500.V03.cut1.21.m150.mock.s.350/Example.500.V03.cut1.21.m150.mock.s.350.cut.g.a.GRCh37.sam
+
+
+############################ part 2  #################################
+
+
+cp {PATH to fastq files}/Example.500.V03.cut1.21.m150.LRUMI_out/umi_binning/umi_ref/umi12f.fa {PATH to fastq files}/
+
+cd {PATH to fastq files}
+pwd
+source /miniconda3/etc/profile.d/conda.sh
+
+conda activate longread_umi
+conda deactivate
+
+parallel
+
+
+############################## Example library ############################
+#!/bin/bash
+#!/usr/bin/perl
+
+cd {PATH to fastq files}
+pwd
+source /miniconda3/etc/profile.d/conda.sh
+
+conda activate longread_umi
+conda deactivate
+
+parallel
+
+
+time for f in $(cat nano.input.file); do echo $f; mkdir cd ${f%.fastq.gz}; ${f%.fastq.gz}; pwd; cp {PATH to fastq files}/Example.500.V03.cut1.21.m150.LRUMI_out/umi_binning/umi_ref/umi12f.fa .; cd ..; pwd; done
+
+###################### end of skip  ############################
+
+source /miniconda3/etc/profile.d/conda.sh
+conda activate longread_umi
+conda deactivate
+
+parallel
+
+###### need to use the sed under longread_umi environment ######
+ 
+conda activate longread_umi
+conda info
+
+############ retrieve the ori sequences for UMIs. 90% similarity #######
+############ Method in manuscript #########
+############ the final cluster count in the title of centroid fasta file
+ 
+time for f in $(cat nano.input.file); do echo $f; cd ${f%.fastq.gz}; pwd; usearch -fastx_uniques test.umi12.f.fa -fastaout test.umi12.f.u.fasta -sizeout -minuniquesize 1 -relabel umi -strand both -tabbedout test.umi12.f.u.tabbed; mkdir cluster_90; usearch -cluster_fast test.umi12.f.u.fasta -id 0.90 -centroids test.umi12.f.u.c.fasta -uc test.umi12.f.u.c.txt -sizein -sizeout  -strand both -minsize 1 -clusters cluster_90/test.umi12.f.u.c.clusters; grep ">" test.umi12.f.u.c.fasta | sed 's/^>//g' > test.umi12.f.u.c.title; cut -d ";" -f2 test.umi12.f.u.c.title | sort | uniq -c > test.umi12.f.u.c.title.count; cd ..; pwd;  done
+
+
+
+###############################################################################
+############ retrieve the ori sequences for UMIs. 94% similarity 2/36 #######
+##### assuming the deunique is done at the 90% UMI #######
+
+time for f in $(cat nano.input.file); do echo $f; cd ${f%.fastq.gz}; pwd; usearch -fastx_uniques test.umi12.f.fasta -fastaout test.umi12.f.u.fasta -sizeout -minuniquesize 1 -relabel umi -strand both -tabbedout test.umi12.f.u.tabbed; cd ..; pwd;  done
+
+
+######################################################################################
+
+########### use 90% similarity for nanopore, and 94% for Miseq #############
+
+
+time for f in $(cat nano.input.file); do echo $f; cd ${f%.fastq.gz}; pwd; mkdir cluster_94; usearch -cluster_fast test.umi12.f.u.fasta -id 0.90 -centroids test.umi12.f.u.c.94.fasta -uc test.umi12.f.u.c.94.txt -sizein -sizeout -strand both -minsize 1 -sort size -clusters cluster_94/test.umi12.f.u.c.94.clusters; grep ">" test.umi12.f.u.c.94.fasta | sed 's/^>//g' > test.umi12.f.u.c.94.title; cut -d ";" -f2 test.umi12.f.u.c.94.title | sort | uniq -c > test.umi12.f.u.c.94.title.count; cd ..; pwd; done
+8
+
+#########################################################
+###############   Make histogram file  #################
+
+time for f in $(cat nano.input.file)
+do 
+	echo $f; 
+	cd ${f%.fastq.gz}; 
+	pwd
+	
+	awk -F ";|=" '{print $3;}' test.umi12.f.u.c.94.title > test.umi12.f.u.c.94.title.hist.txt
+	wc -l test.umi12.f.u.c.94.title.hist.txt
+ 
+	cd ..
+	pwd
+
+done
+
+
+######  Analyze clusters with ≥ 8 reads first #################
+
+time for f in $(cat nano.input.file); do echo $f; cd ${f%.fastq.gz}; pwd; mkdir cluster_94_8up; usearch -cluster_fast test.umi12.f.u.fasta -id 0.90 -centroids test.umi12.f.u.c.94.8up.fasta -uc test.umi12.f.u.c.94.8up.txt -sizein -sizeout  -strand both -minsize 8 -sort size -clusters cluster_94_8up/test.umi12.f.u.c.94.8up.clusters; grep ">" test.umi12.f.u.c.94.8up.fasta | sed 's/^>//g' > test.umi12.f.u.c.94.8up.title; cut -d ";" -f1 test.umi12.f.u.c.94.8up.title > test.umi12.f.u.c.94.8up.title.ID; cut -d ";" -f2 test.umi12.f.u.c.94.8up.title | sort | uniq -c > test.umi12.f.u.c.94.8up.title.count; cd ..; pwd; done
+
+
+
+time for f in $(cat nano.input.file); do echo $f; cd ${f%.fastq.gz}; pwd; awk -F "\t|;" 'FNR==NR{a[$0];next}($9 in a)' test.umi12.f.u.c.94.8up.title.ID test.umi12.f.u.c.94.8up.txt | cut -f2 | sort -k1n | uniq > test.umi12.f.u.c.94.8up.clusters; wc -l test.umi12.f.u.c.94.8up.title.ID; wc -l test.umi12.f.u.c.94.8up.clusters; cd ..; pwd; done
+
+
+conda activate longread_umi
+
+################# Create sam file for each cluster (n≥8)  ######################
+#########not the longread_umi samtools 
+conda deactivate
+
+echo "8up;"
+
+time for f in $(cat nano.input.file)
+do 
+	echo $f; 
+	cd ${f%.fastq.gz}; 
+	sed 's/^/test.umi12.f.u.c.94.8up.clusters/g' test.umi12.f.u.c.94.8up.clusters > test.umi12.f.u.c.94.8up.clusters.rename
+	 
+	cd cluster_94_8up;
+	pwd;
+ 
+	time parallel -j 12 ' grep "^>" {} | cut -d ";" -f1 | sed "s/^>//g" > {}.ID ' < ../test.umi12.f.u.c.94.8up.clusters.rename;
+ 
+	time parallel -j 12 " awk 'FNR==NR{a[\$0];next}(\$2 in a)' {}.ID ../test.umi12.f.u.tabbed > {}.seq; cut -f1 {}.seq > {}.seq.ID; awk 'FNR==NR{a[\$0];next}(\$1 in a)' {}.seq.ID ../${f%.fastq.gz}.cut.g.a.GRCh37.sam > {}.sam; samtools view -bT /Users/sw3203/Documents/Fun/Ref/hg19/Bowtie2Index/genome.fa {}.sam | samtools sort - {}; samtools index {}.bam; rm {}.sam; rm {}.seq;" < ../test.umi12.f.u.c.94.8up.clusters.rename;
+ 
+	cd ../..
+	pwd
+
+done
+
+
+for f in $(cat nano.input.file)
+do 
+	echo $f; 
+	cd ${f%.fastq.gz}; 
+	cd cluster_94_8up;
+	pwd
+	
+	time parallel -j 12 ' bcftools mpileup -Ov -d 10000 -L 10000 -a "FORMAT/AD,FORMAT/DP" -f /Users/sw3203/Documents/Fun/Ref/hg19/Bowtie2Index/genome.fa {}.bam > {}.vcf ' < ../test.umi12.f.u.c.94.8up.clusters.rename;
+		
+
+	time parallel -j 12 'bcftools view -i "FORMAT/AD[0:1]/FORMAT/DP>0.5 && INFO/DP>4" {}.vcf > {}.50.4.vcf; bgzip -c {}.50.4.vcf > {}.50.4.vcf.gz; tabix {}.50.4.vcf.gz; grep -v "#" {}.50.4.vcf > {}.50.vcf ' < ../test.umi12.f.u.c.94.8up.clusters.rename;
+	
+	 
+	 cd ../..
+done
+
+	
+
+time for f in $(cat nano.input.file)
+do 
+	echo $f; 
+	cd ${f%.fastq.gz}; 
+	cd cluster_94_8up;
+	pwd
+	
+	rm 50.vcf.count
+	rm call.50.vcf
+	touch 50.vcf.count
+	touch call.50.vcf
+	
+	for f in $(cat ../test.umi12.f.u.c.94.8up.clusters.rename); do wc -l  $f.50.vcf >> 50.vcf.count; cat $f.50.vcf >> call.50.vcf;  done
+	awk '$1>0 {print $2;}' 50.vcf.count > 50.vcf.count.1
+	cd ../..
+	pwd
+	
+done
+
+
+
+## check mutation around 11719964, can be changed to actual genomic location #### 
+
+time for f in $(cat nano.input.file); do echo $f; cd ${f%.fastq.gz}; cd cluster_94_8up; pwd; grep "11719964" call.50.vcf | wc -l;  grep "11719964" call.50.vcf | grep -v "DP=1;" | wc -l; cd ../..; pwd; done	
+
+time for f in $(cat nano.input.file)
+do 
+	echo $f; 
+	cd ${f%.fastq.gz}; 
+	cd cluster_94_8up;
+	pwd	
+	awk '$1>0 {print $2;}' 50.vcf.count > 50.vcf.count.1
+	for f in $(cat 50.vcf.count.1); do echo $f; cat $f; done > 50.vcf.count.1.input
+	grep -B1 "11719964" 50.vcf.count.1.input
+	cut -f2 call.50.vcf | sort | uniq -c | sort -k1nr 
+	cd ../..
+	pwd
+	
+done
+
+time for f in $(cat nano.input.file)
+do 
+	echo $f; 
+	cd ${f%.fastq.gz}; 
+	
+	tar -zcvf cluster_94.tar.gz cluster_94
+	rm -r cluster_94
+
+	cd ..
+	pwd
+	
+done
+
+
+
+
